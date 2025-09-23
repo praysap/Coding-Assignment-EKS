@@ -4,10 +4,6 @@ FROM node:18-alpine AS build
 # Set working directory
 WORKDIR /app
 
-# Accept build-time environment variable
-#ARG REACT_APP_API_BASE_URL
-#ENV REACT_APP_API_BASE_URL=$REACT_APP_API_BASE_URL
-
 # Copy and install dependencies
 COPY package*.json ./
 
