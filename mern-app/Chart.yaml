@@ -1,0 +1,4 @@
+apiVersion: v2
+name: mern-chart
+description: A Helm chart for MERN stack
+version: 0.1.0

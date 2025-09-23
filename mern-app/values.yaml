@@ -1,0 +1,22 @@
+frontend:
+  image: praysap/learner-frontend:latest
+  containerPort: 80
+  targetPort: 80
+  nodePort : 31063
+
+backend:
+  image: praysap/learner-backend:latest
+  containerPort: 3000
+  targetPort: 3000
+  nodePort : 30585
+ 
+
+mongo:
+  image: mongo
+  containerPort: 27017
+
+secrets:
+  ATLAS_URI: bW9uZ29kYjovL21vbmdvOjI3MDE3L2Jsb2dfbWVybg==
+  HASH_KEY: dGhpc0lzTXlIYXNoS2V5Cg==
+  JWT_SECRET_KEY: dGhpc0lzTXlKd3RTZWNyZXRLZXkK
+  PORT: MzAwMA==
