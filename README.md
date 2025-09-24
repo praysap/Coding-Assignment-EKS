@@ -1,4 +1,4 @@
-# 🚀 Python Flask App Deployment to AWS EKS using Jenkins CI/CD
+# 🚀 MERN Deployment to AWS EKS using Jenkins CI/CD
 [![Terraform](https://img.shields.io/badge/Terraform-1.9+-purple?logo=terraform)]() [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.33+-blue?logo=kubernetes)]() [![Jenkins](https://img.shields.io/badge/Jenkins-Pipeline-red?logo=jenkins)]() [![Docker](https://img.shields.io/badge/Docker-Build%20&%20Push-blue?logo=docker)]() [![AWS](https://img.shields.io/badge/AWS-EKS%20%7C%20ECR%20%7C%20S3-orange?logo=amazon-aws)]() [![GitHub](https://img.shields.io/badge/GitHub-Repo%20%26%20CI-black?logo=github)]()
 
 ## 📌 Project Description
@@ -6,29 +6,7 @@ This project demonstrates a **CI/CD pipeline** to deploy a **Python Flask applic
 
 The pipeline provisions infra, containerizes the Flask app, pushes to **ECR**, and deploys to **EKS** with health checks.
 
-### 📂 Project Structure
-```
-coding-assignment-prt
-├── Dockerfile
-├── Jenkinsfile
-├── README.md
-├── app.py
-├── deploy
-│   └── deploy.sh
-├── images/
-├── k8s
-│   ├── deployment.yaml
-│   └── service.yaml
-├── requirements.txt
-├── terraform
-│   ├── ecr.tf
-│   ├── eks.tf
-│   ├── outputs.tf
-│   ├── providers.tf
-│   ├── variables.tf
-│   └── vpc.tf
-└── test_app.py
-```
+
 ---
 ## 🛠️ Technologies Used
 - ☁️ **AWS** → EKS, ECR, S3, IAM, VPC  
@@ -59,52 +37,9 @@ Before proceeding with the pipeline setup or deployment process, ensure the foll
 3️⃣ **GitHub Credentials**  
 - **ID**: `Github`  
 - **Type**: Username with Password  
-- **Username**: `psagar-dev`  
+- **Username**: `praysap`  
 - **Password / Token**: GitHub PAT  
 
----
-#### 🐳 Steps to Deploy an Application on Docker
-
-📁 Create a `Dockerfile` inside the `coding-assignment-prt` directory:
-```Dockerfile
-FROM python:3.13-slim AS builder
-
-WORKDIR /app
-
-COPY requirements.txt .
-
-RUN pip install --upgrade pip && \
-    pip install --prefix=/install -r requirements.txt
-
-COPY . .
-
-FROM python:3.13-alpine
-
-RUN apk add --no-cache libgcc libstdc++ musl
-
-WORKDIR /app
-
-COPY --from=builder /install /usr/local
-COPY --from=builder /app /app
-
-EXPOSE 5000
-
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
-```
-
-### 🔍 Local Testing & Validation
-
-Build the Docker image:
-```bash
-docker image build --no-cache -t securelooper/sagar-flask-app:latest .
-```
-![docker build](images/docker-build.png)
-
-Run the container:
-```bash
-docker container run -d -p 5000:5000 --name sagar-flask-app flask-app:latest
-```
-![docker run](images/docker-run.png)
 
 ---
 ## 🛠 Terraform Infrastructure Provisioning
@@ -463,51 +398,7 @@ terraform destroy
 ---
 ### ☸️ Steps to Deploy an Application on Kubernetes
 
-#### 📄 Create Deployment
-**File:** `k8s/deployment.yaml`
-```yml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: flask-deployment
-  namespace: default
-  labels:
-    app: flask
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: flask
-  template:
-    metadata:
-      labels:
-        app: flask
-    spec:
-      containers:
-      - name: flask-app
-        image: <IMAGE_NAME>
-        ports:
-        - containerPort: 5000
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "250m"
-          limits:
-            memory: "256Mi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 5000
-          initialDelaySeconds: 10
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 5000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-```
+
 📌 **Apply Deployment**
 ```bash
 kubectl apply -f k8s/deployment.yaml
@@ -516,28 +407,6 @@ kubectl apply -f k8s/deployment.yaml
 ```bash
 kubectl get pods
 ```
-
-#### 📄 Create Service
-**File:** `k8s/service.yaml`
-```yml
-apiVersion: v1
-kind: Service
-metadata:
-  name: flask-service
-  namespace: default
-spec:
-  type: LoadBalancer
-  ports:
-  - port: 80
-    targetPort: 5000
-    protocol: TCP
-  selector:
-    app: flask
-```
-
-📌 **Apply Service**
-```bash
-kubectl apply -f k8s/service.yaml
 ```
 🔍 **Verify Service**
 ```bash
@@ -558,8 +427,8 @@ kubectl get svc
 
 - **Definition**: Pipeline script from SCM
 - **SCM**: Git
-- **Repository URL**: `https://github.com/psagar-dev/coding-assignment-prt.git`
-- **Credentials**: `psagar-dev/******`
+- **Repository URL**: `https://github.com/praysap/Coding-Assignment-EKS.git`
+- **Credentials**: `praysap/******`
 - **Branch Specifier**: `main`
 - **Script Path**: `Jenkinsfile`
 
