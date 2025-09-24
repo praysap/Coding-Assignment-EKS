@@ -82,7 +82,7 @@ File: `terraform/variables.tf`
 variable "aws_region" {
   description = "AWS region to deploy resources"
   type        = string
-  default     = "ap-south-1"
+  default     = "us-west-2"
 }
 
 variable "cluster_name" {
@@ -177,7 +177,6 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 ```
-![VPC](images/vpc.png)
 
 ###  ECR
 File: `terraform/ecr.tf`
@@ -224,8 +223,8 @@ resource "aws_ecr_lifecycle_policy" "repo_policy" {
 }
 ```
 
-![ecr](images/ecr.png)
-![ecr](images/ecr-repo-list.png)
+<img width="1919" height="948" alt="image" src="https://github.com/user-attachments/assets/e96f79ab-08bd-458f-a76a-8afdaadffd19" />
+
 
 ###  EKS
 File: `terraform/eks.tf`
@@ -326,8 +325,8 @@ resource "aws_eks_node_group" "nodes" {
   ]
 }
 ```
-![eks](images/eks-list.png)
-![eks](images/eks-cluster-detail.png)
+<img width="1914" height="633" alt="EKS-cluter-name" src="https://github.com/user-attachments/assets/8198947b-f0d9-48d5-b8f5-db942c798e59" />
+
 
 ###  EKS
 File: `terraform/outputs.tf`
@@ -448,98 +447,167 @@ kubectl get svc
 
 ```groovy
 pipeline {
-    agent any
+  agent any
+  options {
+    timestamps()
+  }
 
-    environment {
-        AWS_REGION = 'ap-south-1'
-        ECR_REPO = '975050024946.dkr.ecr.ap-south-1.amazonaws.com/sagar-app-repo'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-        EKS_CLUSTER_NAME = 'sagar-eks-cluster'
-        DOCKER_IMAGE = "${ECR_REPO}:${IMAGE_TAG}"
+  environment {
+    AWS_REGION        = 'us-west-2'
+    CLUSTER_NAME      = 'three-tier-cluster'
+    NAMESPACE         = 'three-tier'
+    ECR_REPO_FRONTEND = 'mern-frontend'
+    ECR_REPO_BACKEND  = 'mern-backend'
+    ECR_REGISTRY      = '863541429677.dkr.ecr.us-west-2.amazonaws.com' // Replace with your AWS Account ID
+  }
+
+  stages {
+
+    stage('Init AWS + Vars') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            echo "✅ AWS credentials and region set"
+          }
+        }
+      }
     }
 
-    stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-                echo 'Code checked out from Git'
-            }
-        }
-
-        stage('Build') {
-            steps {
-                sh 'docker build --no-cache -t flask-app-repo .'
-            }
-        }
-
-        stage('Push to ECR') {
-            steps {
-                withAWS(region: "${AWS_REGION}", credentials: 'aws-credentials') {
-                    sh """
-                    # Authenticate Docker with ECR
-                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO}
-
-                    # Tag the local image with the full ECR repo path
-                    docker tag flask-app-repo:latest ${DOCKER_IMAGE}
-
-                    # Push the tagged image to ECR
-                    docker push ${DOCKER_IMAGE}
-                    """
-                    echo '✅ Docker image pushed to ECR'
-                }
-            }
-        }
-
-
-        stage('Deploy to EKS') {
-            steps {
-                withAWS(region: "${AWS_REGION}", credentials: 'aws-credentials') {
-                    sh """
-                    aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
-                    sed "s|<IMAGE_NAME>|${DOCKER_IMAGE}|g" k8s/deployment.yaml > k8s/deployment-rendered.yaml
-
-                    # Apply manifests
-                    kubectl apply -f k8s/deployment-rendered.yaml
-                    kubectl apply -f k8s/service.yaml
-                    """
-                    echo 'Deployed to EKS'
-                }
-            }
-        }
+    stage('Checkout Code') {
+      steps {
+        git branch: 'main', url: 'https://github.com/praysap/Coding-Assignment-EKS'
+      }
     }
 
-    post {
-        success {
-            echo 'Pipeline completed successfully'
+    stage('Configure kubeconfig') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              set -e
+              aws eks --region ${AWS_REGION} update-kubeconfig --name ${CLUSTER_NAME}
+            """
+          }
         }
-        failure {
-            echo 'Pipeline failed'
-        }
-        always {
-            sh 'docker system prune -f'
-            echo 'Cleaned up Docker resources'
-        }
+      }
     }
+
+    stage('Ensure ECR Repositories') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              set -e
+              aws ecr describe-repositories --repository-names ${ECR_REPO_FRONTEND} >/dev/null 2>&1 || \
+                aws ecr create-repository --repository-name ${ECR_REPO_FRONTEND}
+
+              aws ecr describe-repositories --repository-names ${ECR_REPO_BACKEND} >/dev/null 2>&1 || \
+                aws ecr create-repository --repository-name ${ECR_REPO_BACKEND}
+            """
+          }
+        }
+      }
+    }
+
+    stage('Login to ECR') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              aws ecr get-login-password --region ${AWS_REGION} | \
+              docker login --username AWS --password-stdin ${ECR_REGISTRY}
+            """
+          }
+        }
+      }
+    }
+
+    stage('Build Frontend Image') {
+      steps {
+        sh """
+          cd frontend
+          docker build -t ${ECR_REGISTRY}/${ECR_REPO_FRONTEND}:latest .
+        """
+      }
+    }
+
+    stage('Build Backend Image') {
+      steps {
+        sh """
+          cd backend
+          docker build -t ${ECR_REGISTRY}/${ECR_REPO_BACKEND}:latest .
+        """
+      }
+    }
+
+    stage('Push Images to ECR') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              docker push ${ECR_REGISTRY}/${ECR_REPO_FRONTEND}:latest
+              docker push ${ECR_REGISTRY}/${ECR_REPO_BACKEND}:latest
+            """
+          }
+        }
+      }
+    }
+
+    stage('Apply Manifests to EKS') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              echo "🚀 Applying backend deployment and service..."
+              kubectl apply -f k8s/backend.yml -n ${NAMESPACE}
+
+              echo "⏳ Waiting for backend pods to be ready..."
+              kubectl rollout status deployment/backend-deployment -n ${NAMESPACE} --timeout=180s
+
+              echo "🚀 Applying frontend deployment and service..."
+              kubectl apply -f k8s/frontend.yml -n ${NAMESPACE}
+
+              echo "⏳ Waiting for frontend pods to be ready..."
+              kubectl rollout status deployment/frontend-deployment -n ${NAMESPACE} --timeout=180s
+            """
+          }
+        }
+      }
+    }
+  }
 }
+
 ```
 
 ### 🚀 Pipeline Overview
 
-![Pipeline Overview](./images/pipline-overview.png)
+<img width="1919" height="967" alt="Pipeline-overview" src="https://github.com/user-attachments/assets/fcb10f40-e59a-40f5-adaf-aa62bf22b02e" />
+<img width="1917" height="986" alt="Pipeline-sucess" src="https://github.com/user-attachments/assets/dcb1cdb1-bbb0-4291-86f0-761fc30f53de" />
+
+
 
 ##### EKS deployment
-![eks deployment](images/eks-deployment.png)
+<img width="1668" height="111" alt="image" src="https://github.com/user-attachments/assets/e6eb103e-f971-4032-a2fd-052610b4618a" />
+
+
 ##### EKS pod
-![eks pod](images/eks-pod.png)
+<img width="1586" height="113" alt="image" src="https://github.com/user-attachments/assets/2b041c07-e6cd-4060-b61e-7ed550cb8595" />
+
 
 ##### EKS service
-![eks service](images/eks-service.png)
+<img width="1609" height="117" alt="image" src="https://github.com/user-attachments/assets/9415e2ec-1d27-44fa-bac1-a0988c96730a" />
 
-##### EKS Load Balancer
-![Load Balancer](images/load-balancer.png)
+
+##### EKS Cluster
+<img width="1919" height="965" alt="Cluster-information" src="https://github.com/user-attachments/assets/9f25e4c8-6e0f-4aa8-af2b-a56c5c4b92ee" />
+
 
 ### **🌍 Production App Live:**
-![live website](images/live-website.png)
+<img width="1919" height="711" alt="backend-working" src="https://github.com/user-attachments/assets/4910de85-953d-45cb-b389-858d0b8130e0" />
+
+<img width="1914" height="993" alt="frontend-working" src="https://github.com/user-attachments/assets/5b6f42fe-5171-4687-aa14-002926ce005c" />
+
+
 
 
 ---
@@ -551,15 +619,5 @@ This project is released under the MIT License, granting you the freedom to:
 - 🔄 Modify and redistribute
 - 📚 Use as educational material
 
-## 📞 Contact
-
-📧 Email: [Email Me](securelooper@gmail.com
-)
-🔗 LinkedIn: [LinkedIn Profile](https://www.linkedin.com/in/sagar-93-patel)  
-🐙 GitHub: [GitHub Profile](https://github.com/psagar-dev)  
-
 ---
 
-<div align="center">
-  <p>Built with ❤️ by Sagar Patel</p>
-</div>
