@@ -440,7 +440,8 @@ kubectl get svc
 - This configuration uses a declarative pipeline stored in the `main` branch under the file `Jenkinsfile`.
 - Ensure that the **GitHub webhook** is properly configured in your GitHub repository settings to trigger Jenkins jobs automatically.
 
-![Jenkins Configuration](./images/flask-cicd-configration.png)
+<img width="1915" height="984" alt="image" src="https://github.com/user-attachments/assets/8cd28e11-0bbc-46c2-9978-8347b8332d1b" />
+
 ---
 
 ### 📄 Jenkinsfile
