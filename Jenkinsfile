@@ -1,108 +1,131 @@
 pipeline {
-    agent any
-    
-    environment {
-        REPO_URL = 'https://github.com/vipulsaw/Container-Orchestration-2.git'
-        REPO_NAME = 'Container-Orchestration-2'
-        HELM_CHART_DIR = 'mern-app'
-        NAMESPACE = 'mern'
-        RELEASE_NAME = 'mern-app'
-        EC2_INSTANCE_IP = '13.203.66.123'
-        DOCKER_HUB_REPO = 'vipulsaw123'
+  agent any
+  options {
+    timestamps()
+  }
+
+  environment {
+    AWS_REGION        = 'us-west-2'
+    CLUSTER_NAME      = 'three-tier-cluster'
+    NAMESPACE         = 'three-tier'
+    ECR_REPO_FRONTEND = 'mern-frontend'
+    ECR_REPO_BACKEND  = 'mern-backend'
+    ECR_REGISTRY      = '863541429677.dkr.ecr.us-west-2.amazonaws.com' // Replace with your AWS Account ID
+  }
+
+  stages {
+
+    stage('Init AWS + Vars') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            echo "✅ AWS credentials and region set"
+          }
+        }
+      }
     }
-    
-    stages {
-        stage('Checkout Source Code') {
-            steps {
-                checkout([$class: 'GitSCM', 
-                         branches: [[name: '*/main']], 
-                         userRemoteConfigs: [[url: env.REPO_URL]]])
-                echo "Repository cloned successfully"
-            }
-        }
-        
-        stage('Build Docker Images') {
-            steps {
-                script {
-                    docker.build("${env.DOCKER_HUB_REPO}/learner-frontend:latest", './learnerReportCS_frontend')
-                    docker.build("${env.DOCKER_HUB_REPO}/learner-backend:latest", './learnerReportCS_backend')
-                    echo "Docker images built successfully"
-                }
-            }
-        }
-        
-        stage('Push Docker Images') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'docker-hub-credentials-Vipul', 
-                        usernameVariable: 'DOCKER_HUB_USER', 
-                        passwordVariable: 'DOCKER_HUB_PASSWORD'
-                    )]) {
-                        sh "echo \$DOCKER_HUB_PASSWORD | docker login -u \$DOCKER_HUB_USER --password-stdin"
-                        sh "docker push ${env.DOCKER_HUB_REPO}/learner-frontend:latest"
-                        sh "docker push ${env.DOCKER_HUB_REPO}/learner-backend:latest"
-                        echo "Docker images pushed to Docker Hub successfully"
-                    }
-                }
-            }
-        }
-        
-        stage('Copy Repository to Target EC2') {
-            steps {
-                sshagent(credentials: ['vipulroot']) {
-                    script {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no root@${env.EC2_INSTANCE_IP} \
-                            'mkdir -p ~/${env.REPO_NAME}'
-                        """
-                        sh """
-                            rsync -avz -e "ssh -o StrictHostKeyChecking=no" \
-                            --exclude='.git' \
-                            --delete \
-                            ./ root@${env.EC2_INSTANCE_IP}:~/${env.REPO_NAME}/
-                        """
-                        echo "Files copied to EC2 instance successfully"
-                    }
-                }
-            }
-        }
-        
-        stage('Install/Upgrade Helm Release') {
-            steps {
-                sshagent(credentials: ['vipulroot']) {
-                    script {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no root@${env.EC2_INSTANCE_IP} \
-                            'cd ~/${env.REPO_NAME}/${env.HELM_CHART_DIR} && \
-                            helm upgrade --install ${env.RELEASE_NAME} . \
-                            --namespace ${env.NAMESPACE} \
-                            --create-namespace'
-                        """
-                        echo "Helm release upgraded successfully"
-                    }
-                }
-            }
-        }
-        
-        stage('Verify Deployment') {
-            steps {
-                sshagent(credentials: ['vipulroot']) {
-                    script {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no root@${env.EC2_INSTANCE_IP} \
-                            'helm list -n ${env.NAMESPACE} && \
-                            kubectl get pods -n ${env.NAMESPACE}'
-                        """
-                    }
-                }
-            }
-        }
+
+    stage('Checkout Code') {
+      steps {
+        git branch: 'main', url: 'https://github.com/praysap/Coding-Assignment-EKS'
+      }
     }
-    
-    post {
-        always {
-            echo 'Pipeline completed!'
+
+    stage('Configure kubeconfig') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              set -e
+              aws eks --region ${AWS_REGION} update-kubeconfig --name ${CLUSTER_NAME}
+            """
+          }
         }
+      }
     }
+
+    stage('Ensure ECR Repositories') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              set -e
+              aws ecr describe-repositories --repository-names ${ECR_REPO_FRONTEND} >/dev/null 2>&1 || \
+                aws ecr create-repository --repository-name ${ECR_REPO_FRONTEND}
+
+              aws ecr describe-repositories --repository-names ${ECR_REPO_BACKEND} >/dev/null 2>&1 || \
+                aws ecr create-repository --repository-name ${ECR_REPO_BACKEND}
+            """
+          }
+        }
+      }
+    }
+
+    stage('Login to ECR') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              aws ecr get-login-password --region ${AWS_REGION} | \
+              docker login --username AWS --password-stdin ${ECR_REGISTRY}
+            """
+          }
+        }
+      }
+    }
+
+    stage('Build Frontend Image') {
+      steps {
+        sh """
+          cd frontend
+          docker build -t ${ECR_REGISTRY}/${ECR_REPO_FRONTEND}:latest .
+        """
+      }
+    }
+
+    stage('Build Backend Image') {
+      steps {
+        sh """
+          cd backend
+          docker build -t ${ECR_REGISTRY}/${ECR_REPO_BACKEND}:latest .
+        """
+      }
+    }
+
+    stage('Push Images to ECR') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              docker push ${ECR_REGISTRY}/${ECR_REPO_FRONTEND}:latest
+              docker push ${ECR_REGISTRY}/${ECR_REPO_BACKEND}:latest
+            """
+          }
+        }
+      }
+    }
+
+    stage('Apply Manifests to EKS') {
+      steps {
+        script {
+          withAWS(region: "${AWS_REGION}", credentials: 'as-eks-creds') {
+            sh """
+              echo "🚀 Applying backend deployment and service..."
+              kubectl apply -f k8s/backend.yml -n ${NAMESPACE}
+
+              echo "⏳ Waiting for backend pods to be ready..."
+              kubectl rollout status deployment/backend-deployment -n ${NAMESPACE} --timeout=180s
+
+              echo "🚀 Applying frontend deployment and service..."
+              kubectl apply -f k8s/frontend.yml -n ${NAMESPACE}
+
+              echo "⏳ Waiting for frontend pods to be ready..."
+              kubectl rollout status deployment/frontend-deployment -n ${NAMESPACE} --timeout=180s
+            """
+          }
+        }
+      }
+    }
+  }
 }
+
